@@ -1,0 +1,146 @@
+version: '2'
+services:
+   mariadb:
+     image: mariadb:10.1.16
+     container_name: wp-mysql
+     volumes:
+       - /data/wordpress/mysql:/var/lib/mysql
+     ports:
+       - "23306:3306"
+     restart: always
+     environment:
+       MYSQL_ROOT_PASSWORD: my-secret-pw
+       MYSQL_DATABASE: wordpress
+       MYSQL_USER: root
+       MYSQL_PASSWORD: my-secret-pw
+   wordpress:
+     depends_on:
+       - mariadb
+     links:
+       - mariadb
+     image: armdocker.rnd.ericsson.se/aia/ray/aia-wordpress
+     container_name: wordpress
+     volumes:
+       - /data/wordpress/html:/var/www/html
+     ports:
+       - "23307:80"
+     restart: always
+     environment:
+       WORDPRESS_DB_PASSWORD: wordpress
+       WORDPRESS_DB_USER: root
+       WORDPRESS_DB_PASSWORD: my-secret-pw
+       WORDPRESS_DB_HOST: mariadb
+   nginx:
+     image: nginx
+     container_name: nginx-portal-content
+     links:
+       - wordpress
+     volumes:
+       - /data/portal:/usr/share/nginx/html
+     ports:
+       - "80:80"
+     restart: always
+     environment:
+       host: $HOSTIP
+       zuul.routes.wordpress.url: wordpress
+   mongo:
+     image: mongo
+     container_name: metastore-mongo
+     ports:
+      - 27017:27017
+   metastore:
+     links:
+       - mongo
+     image: armdocker.rnd.ericsson.se/aia/metadata-rest:1.0.46-SNAPSHOT
+     container_name: metastore
+     links:
+       - mongo
+     depends_on:
+       - mongo
+     ports:
+       - "8080:8080"
+       - "8009:8009"
+     restart: always
+     environment:
+       DATASTORE_HOST: mongo
+       DATASTORE_PORT: 27017
+       DATASTORE_DB: aia
+       DATASTORE_USERNAME: admin
+       DATASTORE_PASSWORD: admin
+   template-manager:
+     links:
+       - metastore
+     depends_on:
+       - metastore
+       - mongo
+     image: armdocker.rnd.ericsson.se/aia/template-manager-services:1.0.58-SNAPSHOT 
+     volumes:
+       - /root/.ssh/:/root/.ssh/
+       - /dev/urandom:/dev/random
+     ports:
+       - "6767:6767"
+     restart: always
+     container_name: aia-sdk-template-mngr
+     environment:
+       GIT_SERVICE_TYPE: GOGS
+       GIT_SERVICE_URL: http://$HOSTIP:28080/api/v1
+       GIT_SERVICE_TEMPLATE_REPO: ssh://git@$HOSTIP:443/root/Blank_Template.git
+       GIT_SERVICE_ACCESS_TOKEN: 65b8f5482130da557d5b577764ec733173be5701
+       DATASTORE_HOST: mongo
+       DOCKER_USER_NAME: eappsdk
+       DOCKER_USER_PASSWORD: Kgidwl*fak$$9yq8c
+       DOCKER_REPO_URL: armdocker.rnd.ericsson.se
+       DOCKER_REPO_PATH: aia/test
+       ARTIFACTORY_URL: https://arm.epk.ericsson.se/artifactory/
+   application-manager:
+     links:
+       - metastore
+     depends_on:
+       - metastore
+       - mongo
+     image: armdocker.rnd.ericsson.se/aia/application-manager-services:1.0.63-SNAPSHOT
+     volumes:
+       - /root/.ssh/:/root/.ssh/
+       - /var/run/docker.sock:/var/run/docker.sock/
+       - /dev/urandom:/dev/random
+     ports:
+       - "6868:6868"
+     restart: always
+     container_name: aia-sdk-application-mngr
+     environment:
+       GIT_SERVICE_TYPE: GOGS
+       DOCKER_USER_NAME: eappsdk
+       DOCKER_USER_PASSWORD: Kgidwl*fak$$9yq8c
+       GIT_SERVICE_URL: http://$HOSTIP:28080/api/v1
+       GIT_SERVICE_ACCESS_TOKEN: 65b8f5482130da557d5b577764ec733173be5701
+       DOCKER_REPO_URL: armdocker.rnd.ericsson.se
+       DOCKER_REPO_PATH: aia/test
+       ARTIFACTORY_URL: https://arm.epk.ericsson.se/artifactory/
+       DATASTORE_HOST: mongo
+   gogs-postgres:
+     image: postgres
+     ports:
+       - "5432:5432"
+     restart: always
+     container_name: gogs-postgres
+     environment:
+       POSTGRES_PASSWORD: mysecretpassword
+       POSTGRES_DB: gogs
+   gogs-server:
+     links:
+       - gogs-postgres
+     depends_on:
+       - gogs-postgres
+     image: gogs/gogs:latest
+     volumes:
+       - /data/gogs:/data
+       - ./backup:/backup
+     ports:
+       - "443:22"
+       - "28080:3000"
+     restart: always
+     container_name: gogs-server
+     environment:
+       POSTGRES_PASSWORD: mysecretpassword
+       POSTGRES_DB: gogs
+
